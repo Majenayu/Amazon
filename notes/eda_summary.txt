@@ -1,0 +1,62 @@
+--- train S1: train_source1.tsv
+    rows            : 2,206,821
+    empty name      : 0.00%
+    empty address   : 0.00%
+    countries       : US=1,323,633 (59.98%), India=883,188 (40.02%)
+    name length     : p10=14  median=24  p90=34  max=87
+    address length  : p10=29  median=41  p90=90  max=223
+    non-ASCII names : 0.00% (first 400,000 rows)
+
+--- train S2: train_source2.tsv
+    rows            : 5,034,616
+    empty name      : 0.00%
+    empty address   : 3.36%
+    countries       : US=3,016,817 (59.92%), India=2,017,799 (40.08%)
+    name length     : p10=14  median=25  p90=37  max=104
+    address length  : p10=26  median=37  p90=83  max=204
+    non-ASCII names : 15.14% (first 400,000 rows)
+
+--- train S3: train_source3.tsv
+    rows            : 5,285,603
+    empty name      : 0.00%
+    empty address   : 3.33%
+    countries       : US=3,170,056 (59.98%), India=2,115,547 (40.02%)
+    name length     : p10=14  median=25  p90=37  max=89
+    address length  : p10=29  median=42  p90=77  max=234
+    non-ASCII names : 11.50% (first 400,000 rows)
+
+--- test S1: test_source1.tsv
+    rows            : 1,732,544
+    empty name      : 0.00%
+    empty address   : 0.00%
+    countries       : India=809,986 (46.75%), US=663,106 (38.27%), France=259,452 (14.98%)
+    name length     : p10=14  median=24  p90=34  max=92
+    address length  : p10=31  median=51  p90=93  max=240
+    non-ASCII names : 2.33% (first 400,000 rows)
+
+--- test S2: test_source2.tsv
+    rows            : 4,887,273
+    empty name      : 0.00%
+    empty address   : 2.65%
+    countries       : India=2,312,565 (47.32%), US=1,871,330 (38.29%), France=703,378 (14.39%)
+    name length     : p10=14  median=25  p90=38  max=87
+    address length  : p10=27  median=42  p90=87  max=238
+    non-ASCII names : 19.00% (first 400,000 rows)
+
+--- test S3: test_source3.tsv
+    rows            : 5,082,316
+    empty name      : 0.00%
+    empty address   : 2.68%
+    countries       : India=2,405,000 (47.32%), US=1,945,701 (38.28%), France=731,615 (14.40%)
+    name length     : p10=14  median=25  p90=38  max=86
+    address length  : p10=28  median=43  p90=81  max=235
+    non-ASCII names : 14.51% (first 400,000 rows)
+
+--- ground truth: train_ground_truth.tsv
+    S1 entities           : 2,206,821
+    with >=1 match        : 2,083,574 (94.42%)
+    singletons (no match) : 123,247 (5.58%)
+    total true matches    : 7,638,365  (avg 3.67 per matched entity)
+    matches per entity    : 1: 119,157, 2: 375,212, 3: 530,841, 4: 484,115, 5: 321,957, 6: 164,868, 7: 63,968, 8+: 23,456
+    predict-all-empty baseline (macro F_0.5): 5.58%
+
