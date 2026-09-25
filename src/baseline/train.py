@@ -1,14 +1,17 @@
-#!/usr/bin/env python3
-"""Train the matcher and pick the probability threshold maximising macro F_0.5.
+﻿#!/usr/bin/env python3
+"""Train the matcher and pick the probability threshold that maximises macro F_0.5.
 
-Scalable version: pairs are read in chunks so the full-data run (tens of
-millions of pairs) never needs to fit in RAM at once.
+Also scores an existing prediction file (--score-pred), so scoring and training
+live together instead of in two near-duplicate scripts.
 
-* training rows  = every TRUE match + a random 15% sample of the noise
+Streaming throughout: the pairs file is read in chunks, so a 4+ GB file never
+needs to fit in RAM.
+
+* training rows  = every TRUE match + a random 10-15% sample of the noise
   (the model only needs to learn the ranking; keeping all noise wastes RAM)
-* validation rows = ALL pairs of the held-out entities, at full density - the
-  threshold must be tuned on exactly the density we will serve at, otherwise
-  the chosen threshold is wrong.
+* validation rows = ALL pairs of the held-out entities, at full candidate
+  density. The threshold must be tuned at exactly the density it will be served
+  at, otherwise the chosen threshold is wrong for the real test set.
 
 Metric, per Source-1 entity, then averaged:
 
@@ -20,9 +23,13 @@ Metric, per Source-1 entity, then averaged:
 Entities with no candidate at all are still scored, exactly like the leaderboard.
 
 Usage:
-    python src/baseline/train.py --pairs data/cache/train_pairs.tsv \\
-        --s1 data/train/train_source1.tsv --gt data/train/train_ground_truth.tsv \\
-        --model-out models/full
+    python src/baseline/train.py --pairs data/cache/train_pairs.tsv \
+        --s1 data/train/train_source1.tsv --gt data/train/train_ground_truth.tsv \
+        --model-out models/v3
+
+    python src/baseline/train.py --pairs data/cache/train_pairs.tsv \
+        --s1 data/train/train_source1.tsv --gt data/train/train_ground_truth.tsv \
+        --score-pred output/matching_results.tsv
 """
 
 from __future__ import annotations
@@ -41,10 +48,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if os.path.dirname(HERE) not in sys.path:
     sys.path.insert(0, os.path.dirname(HERE))
 
-from baseline.textnorm import FEATURE_NAMES  # noqa: E402
+from baseline.core import FEATURE_NAMES  # noqa: E402
 
 EMPTY = frozenset()
-NEG_KEEP = 0.15  # fraction of noise rows kept for training
+NEG_KEEP = 0.15          # fraction of noise rows kept for training
 
 
 def log(msg: str) -> None:
@@ -52,35 +59,29 @@ def log(msg: str) -> None:
 
 
 def split_of(s1_id: str) -> str:
-    """Stable hash split: ~20% of entities go to validation."""
+    """Stable hash split: ~20% of entities go to validation. No seed needed."""
     return "val" if (zlib.crc32(s1_id.encode("utf-8")) % 5 == 0) else "trn"
 
 
-def read_gt(path: str) -> dict:
-    gt = {}
+def read_labels(path: str) -> dict:
+    """source-1 id -> frozenset of matched source-2/3 ids."""
+    out = {}
     with open(path, encoding="utf-8", errors="replace") as fh:
         next(fh, None)
         for line in fh:
             p = line.rstrip("\n").split("\t")
             if len(p) > 1 and p[1]:
-                gt[p[0]] = frozenset(x for x in p[1].split(",") if x)
+                out[p[0]] = frozenset(x for x in p[1].split(",") if x)
             else:
-                gt[p[0]] = EMPTY
-    return gt
+                out[p[0]] = EMPTY
+    return out
 
 
-def read_s1_ids(path: str) -> list:
-    ids = []
-    with open(path, encoding="utf-8", errors="replace") as fh:
-        next(fh, None)
-        for line in fh:
-            ids.append(line.split("\t", 1)[0])
-    return ids
+def sweep(val_p, val_y, val_code, gt_len):
+    """Vectorised threshold sweep against the exact metric.
 
-
-def sweep(val_p: np.ndarray, val_y: np.ndarray, val_code: np.ndarray,
-          gt_len: np.ndarray) -> tuple:
-    """Vectorised threshold sweep. Returns (best_threshold, best_score, curve)."""
+    Returns (best_threshold, best_score, curve).
+    """
     n = len(gt_len)
     if len(val_p) == 0 or n == 0:
         return 1.0, float((gt_len == 0).mean()) if n else 0.0, []
@@ -100,12 +101,53 @@ def sweep(val_p: np.ndarray, val_y: np.ndarray, val_code: np.ndarray,
     return best_t, best_s, curve
 
 
+def score_file(pred_path: str, gt_path: str) -> int:
+    """Score a matching_results.tsv with the exact competition metric.
+
+    Ground-truth entities missing from the prediction file count as
+    predicted-empty: 1.0 if a true singleton, else 0.0. That is the rule the
+    leaderboard uses, so this reproduces the real number locally.
+    """
+    pred = read_labels(pred_path)
+    truth = read_labels(gt_path)
+    total = 0.0
+    singletons = exact = wrong_merge = missed = 0
+    for sid, true in truth.items():
+        got = pred.get(sid, EMPTY)
+        m, k = len(true), len(got)
+        if m == 0:
+            singletons += 1
+            if k == 0:
+                total += 1.0
+                exact += 1
+            else:
+                wrong_merge += 1
+        elif k == 0:
+            missed += 1
+        else:
+            total += (1.25 * len(got & true)) / (0.25 * m + k)
+            if got == true:
+                exact += 1
+    n = max(1, len(truth))
+    log("entities scored      : {:,}".format(len(truth)))
+    log("MACRO F_0.5           : {:.4f}".format(total / n))
+    log("perfect entities      : {:,} ({:.2f}%)".format(exact, 100.0 * exact / n))
+    log("singletons            : {:,} ({:.2f}%)".format(singletons, 100.0 * singletons / n))
+    log("singleton false merge : {:,}   <- each scores 0.0".format(wrong_merge))
+    log("missed entirely       : {:,}   <- predicted empty, had matches".format(missed))
+    print("{:.4f}".format(total / n))
+    return 0
+
+
 def main() -> int:
-    ap = argparse.ArgumentParser(description="Train matcher + tune F_0.5 threshold (streaming).")
-    ap.add_argument("--pairs", required=True, help="pairs TSV from block.py --split train")
-    ap.add_argument("--s1", required=True, help="train_source1.tsv")
-    ap.add_argument("--gt", required=True, help="train_ground_truth.tsv")
-    ap.add_argument("--model-out", required=True, help="output prefix, e.g. models/full")
+    ap = argparse.ArgumentParser(
+        description="Train + tune the F_0.5 threshold, or score a prediction file.")
+    ap.add_argument("--pairs", required=True, help="pairs TSV from block.py")
+    ap.add_argument("--s1", required=True)
+    ap.add_argument("--gt", required=True)
+    ap.add_argument("--model-out", default="models/v3")
+    ap.add_argument("--score-pred", default=None, metavar="FILE",
+                    help="score this matching_results.tsv instead of training")
     ap.add_argument("--chunksize", type=int, default=2_000_000)
     ap.add_argument("--max-iter", type=int, default=200)
     ap.add_argument("--neg-keep", type=float, default=NEG_KEEP)
@@ -115,21 +157,25 @@ def main() -> int:
         if not os.path.exists(p):
             log("missing file: %s" % p)
             return 1
+    if args.score_pred:
+        if not os.path.exists(args.score_pred):
+            log("missing file: %s" % args.score_pred)
+            return 1
+        return score_file(args.score_pred, args.gt)
 
-    # ---- validation entities (hash split, reproducible, no seed needed) -------
+    # ---- validation entities (hash split, reproducible) --------------------
     t0 = time.time()
-    val_ids, code_map, inv = [], {}, []
+    code_map, val_ids = {}, []
     with open(args.s1, encoding="utf-8", errors="replace") as fh:
         next(fh, None)
         for line in fh:
             sid = line.split("\t", 1)[0]
             if split_of(sid) == "val":
-                code_map[sid] = len(inv)
-                inv.append(sid)
+                code_map[sid] = len(val_ids)
                 val_ids.append(sid)
-    log("validation entities: {:,} ({:.1f}% of Source-1)".format(len(val_ids), 100.0 * len(val_ids) / max(1, len(inv))))
+    log("validation entities: {:,}".format(len(val_ids)))
 
-    # ---- keep ONLY the ground truth of validation entities (saves ~700 MB) ----
+    # ---- keep ONLY the ground truth of validation entities (saves ~700 MB) --
     val_gt = {}
     with open(args.gt, encoding="utf-8", errors="replace") as fh:
         next(fh, None)
@@ -142,17 +188,17 @@ def main() -> int:
     log("  singleton rate {:.2f}% = predict-all-empty floor".format(
         100.0 * n_singleton / max(1, len(val_ids))))
 
-    # ---- stream the pairs file -------------------------------------------------
-    # feature names come from the pairs file header, so v1 (8) and v3 (20)
-    # feature sets both work without editing this script
+    # ---- stream the pairs file ---------------------------------------------
+    # feature names come from the pairs-file header
     with open(args.pairs, encoding="utf-8", errors="replace") as fh:
         header = fh.readline().rstrip("\n").split("\t")
     feats = [c for c in header[2:] if c and c != "label"]
-    log("features (%d): %s" % (len(feats), ", ".join(feats)))
+    log("features ({}): {}".format(len(feats), ", ".join(feats)))
+
     split_cache = {}
     rng = np.random.default_rng(0)
     fit_X, fit_y, val_X, val_y, val_code = [], [], [], [], []
-    n_pos = n_neg = n_val_rows = 0
+    n_pos = n_neg = 0
     t1 = time.time()
     reader = pd.read_csv(args.pairs, sep="\t", chunksize=args.chunksize,
                          dtype={"s1_id": str, "other_id": str})
@@ -162,11 +208,10 @@ def main() -> int:
         if chunk.empty:
             continue
 
-        def get_split(sid):
-            v = split_cache.get(sid)
+        def get_split(sid, _c=split_cache):
+            v = _c.get(sid)
             if v is None:
-                v = split_of(sid)
-                split_cache[sid] = v
+                v = _c[sid] = split_of(sid)
             return v
 
         sp = chunk["s1_id"].map(get_split)
@@ -176,7 +221,6 @@ def main() -> int:
             val_code.append(v["s1_id"].map(code_map).to_numpy(dtype=np.int32))
             val_X.append(v[feats].to_numpy(dtype=np.float32))
             val_y.append(v["label"].to_numpy(dtype=np.int8))
-            n_val_rows += len(v)
 
         tr = chunk[sp == "trn"]
         if len(tr):
@@ -190,8 +234,7 @@ def main() -> int:
             fit_X.append(keep[feats].to_numpy(dtype=np.float32))
             fit_y.append(keep["label"].to_numpy(dtype=np.int8))
         if (ci + 1) % 5 == 0:
-            log("  chunk {:,} | fit rows {:,} | val rows {:,}".format(
-                ci + 1, n_pos + n_neg, n_val_rows))
+            log("  chunk {:,} | fit rows {:,}".format(ci + 1, n_pos + n_neg))
     log("pairs streamed in {:.1f}s".format(time.time() - t1))
 
     if not fit_X:
@@ -261,5 +304,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-
-

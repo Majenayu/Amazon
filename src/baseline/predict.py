@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Turn candidate pairs + a trained model into the two submission files.
 
     matching_results.tsv   source1_entity_id <TAB> matched_entity_ids (comma list)
@@ -33,7 +33,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 if os.path.dirname(HERE) not in sys.path:
     sys.path.insert(0, os.path.dirname(HERE))
 
-from baseline.textnorm import FEATURE_NAMES  # noqa: E402
+from baseline.core import FEATURE_NAMES  # noqa: E402
 
 
 def log(msg: str) -> None:
@@ -180,5 +180,6 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
 
 

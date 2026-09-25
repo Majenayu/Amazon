@@ -1,4 +1,4 @@
-# Entity Resolution - Technical Report
+﻿# Entity Resolution - Technical Report
 
 Amazon ML Challenge 2026. Source-1 matched to (Source-2, Source-3).
 
@@ -170,7 +170,7 @@ held-out entities** at full candidate density.
 |---|---:|
 | predict-all-empty floor | 0.0559 |
 | **best global threshold** | **0.8170** |
-| **validation macro F₀.₅** | **0.4565** |
+| **validation macro F0.5** | **0.4565** |
 | entities predicted non-empty at that threshold | 286,389 (64.9%) |
 
 That is **8.2x better than predicting nothing.** The full threshold curve is in
@@ -185,7 +185,7 @@ recall. That suggested a per-entity decision rule could beat one global
 threshold, so it was built (`src/baseline/decision.py`, `decide.py`) and
 measured on 60,000 held-out entities at full density.
 
-| Rule | Validation macro F₀.₅ |
+| Rule | Validation macro F0.5 |
 |---|---:|
 | best global threshold (t = 0.8571) | **0.4562** |
 | adaptive, m_prior 0.85 | 0.4498 |
