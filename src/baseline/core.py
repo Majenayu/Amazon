@@ -27,7 +27,8 @@ NUMERIC = set("0123456789")
 
 TOK_MIN = 4     # tokens shorter than this are too common to key on
 PRE_MIN = 4     # token-prefix key length
-ADDR_MIN = 5     # address tokens shorter than this are too common to key on
+    import unicodedata
+    s = unicodedata.normalize("NFKC", s.lower())
 
 # Generic address words that would create huge posting lists but carry almost
 # no identity. They are skipped at key-build time (the tok-cap trim is the
@@ -98,27 +99,13 @@ def jaccard(a: set, b: set) -> float:
 
 # --------------------------------------------------------------------------
 # blocking keys
-# --------------------------------------------------------------------------
-
-def key_sig(n: str) -> str:
-    """Sorted-token signature: survives word-order swaps."""
-    return "|".join(sorted(n.split()))
-
-
-def addr_tokens(address: str) -> set:
-    """ normalised address tokens worth blocking on.
-
-    Lower-cased, split on whitespace, keep alnum tokens of length >= ADDR_MIN
-    that are not in ADDR_SKIP and not purely numeric (street numbers are
-    covered by the PIN / numeric-token features, and bare numbers like
-    '12' would collide across millions of rows).
-    """
     if not address:
         return set()
+    import unicodedata
     out = set()
-    for t in address.lower().split():
-        # strip surrounding punctuation: "road," -> "road"
-        t = t.strip(".,;:()[]{}'\"-")
+    norm = unicodedata.normalize("NFKC", address.lower())
+    norm = re.sub(r"[^0-9a-z\u0900-\u097f ]+", " ", norm)
+    for t in norm.split():
         if len(t) < ADDR_MIN:
             continue
         if t in ADDR_SKIP:
@@ -130,24 +117,60 @@ def addr_tokens(address: str) -> set:
             continue
         out.add(t)
     return out
+    out = set()
+    for t in address.lower().split():
+def char4(n: str) -> set:
+    """character 4-gram set of the normalised name, spaces kept.
+
+    Catches word splits/merges (glorioustouch vs glorious touch) and heavy
+    typos that token keys miss. Used only as a blocking key, never stored.
+    """
+    if len(n) < 4:
+        return set()
+    return {n[i:i + 4] for i in range(len(n) - 3)}
 
 
+def keys_for(n: str, c: str, pn, atok=None, c4=None) -> list:
+        t = t.strip(".,;:()[]{}'\"-")
+        if len(t) < ADDR_MIN:
+            continue
+        if t in ADDR_SKIP:
+            continue
+        if t.isdigit():
+            continue
+        # must contain a letter to avoid pure codes colliding
+    The union of these key types is what lifts blocking recall. A pair becomes
+    a candidate if ANY key links it.
+        out.add(t)
+    return out
+
+        # country-prefixed keys (safe) AND country-free keys (France has no
+        # training labels, and names/addresses carry identity without it)
+        out.append((8.0, "E|" + c + "|" + n))
+        if len(n) >= 12:
+            out.append((8.0, "E|" + n))
 def keys_for(n: str, c: str, pn, atok=None) -> list:
     """(weight, key) pairs for one record.
 
     E exact name and S sorted signature are near-certain matches, T/Z are
     solid evidence, A (address token) is weaker per-token but is the ONLY
-    signal for transliteration pairs where the name shares nothing, X
+            out.append((2.0, "T|" + c + "|" + t))
+            out.append((1.5, "T|" + t))
     (4-char token prefix) is only a typo hint. The weight orders which
     posting lists are visited first and how candidates are ranked.
-
+            out.append((1.0, "X|" + c + "|" + t[:PRE_MIN]))
     The union of these six key types is what lifts blocking recall. A pair
-    becomes a candidate if ANY key links it.
+        out.append((2.0, "Z|" + c + "|" + z))
+        out.append((1.5, "Z|" + z))
     """
     out = []
     if n:
         out.append((8, "E|" + c + "|" + n))
-        out.append((6, "S|" + c + "|" + key_sig(n)))
+            out.append((1.5, "A|" + c + "|" + t))
+            out.append((1.25, "A|" + t))
+    if c4:
+        for g in c4:
+            out.append((0.7, "G|" + c + "|" + g))
     seen_t, seen_x = set(), set()
     for t in n.split():
         if len(t) >= TOK_MIN and t not in seen_t:
@@ -269,11 +292,7 @@ SCORE_HDR = "s1_id\tother_id\tevidence\tlabel"
 
 
 def make_record(entity_id: str, name: str, address: str, country: str) -> dict:
-    """Light record: keeps only what the features and keys need.
-
-    Raw strings are deliberately not retained - Source-1 alone is 2.2M rows and
-    holding the raw text costs about 1 GB.
-    """
+    """Light record: keeps only what the features and keys need."""
     return {
         "id": entity_id,
         "n": normalize_name(name),
