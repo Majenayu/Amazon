@@ -4,6 +4,10 @@ output/
 *.tsv
 *.pdf
 
+# ---- run artefacts (regenerate with the scripts) ----
+logs/
+models/
+
 # ---- macOS junk ----
 .DS_Store
 ._*
