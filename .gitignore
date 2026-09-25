@@ -4,6 +4,11 @@ output/
 *.tsv
 *.pdf
 
+# ---- big archives and generated artifacts: local only ----
+*.zip
+artifacts/
+outputs/
+
 # ---- run artefacts (regenerate with the scripts) ----
 logs/
 models/

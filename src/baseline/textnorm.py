@@ -58,16 +58,16 @@ def pins(address: str) -> tuple:
 def block_keys(name: str, address: str, country: str) -> tuple:
     """Return (normalised_name, [keys]) for one record.
 
-    Keys are prefixed so different key types can never collide:
-      P|country|name[:3]   first three characters of the cleaned name
-      T|country|token      first few tokens of length >= 4 (any script)
+    30-MINUTE MODE: prefix keys (P|...) are OFF. They caused 60k-way
+    collisions (every "ama..." shop in the country hits one key) and
+    drowned the true matches. Only discriminative keys survive:
+
+      T|country|token      name tokens of length >= 4 (any script)
       Z|country|pin        postal code
     """
     n = normalize_name(name)
     c = (country or "").strip().lower()
     keys = []
-    if len(n) >= 3:
-        keys.append("P|%s|%s" % (c, n[:3]))
     for t in n.split()[:6]:
         if len(t) >= 4:
             keys.append("T|%s|%s" % (c, t))

@@ -113,18 +113,17 @@ def stream_pairs(path: str, index: dict, recs: list, gt, max_cand: int, out, sta
                  collect: int = 40, span_max: int = 100000):
     """Emit candidate pairs for one Source-2/3 file.
 
-    Selection strategy - "rarest key first":
+    Selection strategy - "rarest key first, quality floor":
 
       1. a record's keys are sorted by how many Source-1 rows they cover, and we
-         walk them from the rarest. Rare keys (an unusual name token, a specific
-         prefix) are both cheap and precise; broad keys are only reached when the
-         rarer ones did not fill the collection budget.
+         walk them from the rarest.
       2. at most ``collect`` candidates are gathered per record, then they are
          ranked by shared name tokens and only the best ``max_cand`` (per
          Source-1 row, per source file) are written.
-
-    This bounds the work per record no matter how repetitive the data is, while
-    keeping true matches (which share distinctive tokens) at the front.
+      3. QUALITY FLOOR: a pair is only written when it shares >=1 normalised
+         name token OR shares a postal code. Pairs sharing only a 3-char
+         prefix are pure noise: they filled per-row budgets with whoever
+         arrived first in file order and starved true matches arriving later.
     """
     # counters are created per file, so each source (2 and 3) gets its OWN budget
     # for a Source-1 row - one source cannot eat the whole allowance.
@@ -132,11 +131,13 @@ def stream_pairs(path: str, index: dict, recs: list, gt, max_cand: int, out, sta
     buf = []
     n_rows = 0
     fmt = "%.4f"
+    t_start = time.time()
 
     def flush():
         if buf:
             out.write("\n".join(buf))
             out.write("\n")
+            out.flush()
             buf.clear()
 
     with open(path, encoding="utf-8", errors="replace") as fh:
@@ -148,6 +149,12 @@ def stream_pairs(path: str, index: dict, recs: list, gt, max_cand: int, out, sta
             other_id = p[0]
             o = make_record(p[0], p[1], p[2], p[3])
             otok = o["ntok"]
+            n_rows_scanned = stats.get("_scanned", 0) + 1
+            stats["_scanned"] = n_rows_scanned
+            if n_rows_scanned % 500000 == 0:
+                el = time.time() - t_start
+                log("    ... {:,} source rows scanned, {:,} pairs kept, {:.0f}s".format(
+                    n_rows_scanned, stats["n_rows"], el))
 
             hits = []
             for k in o["keys"]:
@@ -177,10 +184,18 @@ def stream_pairs(path: str, index: dict, recs: list, gt, max_cand: int, out, sta
             if len(cand) > max_cand > 0:
                 cand.sort(key=lambda i: len(recs[i]["ntok"] & otok), reverse=True)
                 stats["ranked"] += 1
+                cand = cand[:max_cand]
 
+            opins = set(o.get("pins") or ())
             for i in cand:
                 if counters[i] >= max_cand:
                     continue
+                r = recs[i]
+                shared = len(r["ntok"] & otok)
+                if shared == 0:
+                    rpins = set(r.get("pins") or ())
+                    if not (opins and rpins and (opins & rpins)):
+                        continue  # prefix-only collision: noise, skip before budget
                 is_pos = False
                 if gt is not None:
                     is_pos = other_id in gt.get(recs[i]["id"], EMPTY)
@@ -195,7 +210,7 @@ def stream_pairs(path: str, index: dict, recs: list, gt, max_cand: int, out, sta
                 buf.append("\t".join(row))
                 n_rows += 1
                 stats["n_rows"] += 1
-                if len(buf) >= 200_000:
+                if len(buf) >= 20_000:
                     flush()
     flush()
     return n_rows

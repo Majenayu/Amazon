@@ -1,0 +1,70 @@
+#!/usr/bin/env python3
+"""Full run: hash-join block train, train model, hash-join block test, score."""
+from __future__ import annotations
+import argparse, os, subprocess, sys, time
+HERE = os.path.dirname(os.path.abspath(__file__))
+if os.path.dirname(HERE) not in sys.path:
+    sys.path.insert(0, os.path.dirname(HERE))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+from baseline.hashjoin import HDR, load_slice, log, read_gt
+from baseline.hashjoin2 import block_slice
+
+
+def run_block(split, data_dir, out_path, chunk=250_000, tok_top=8):
+    sub = os.path.join(data_dir, "train" if split == "train" else "test")
+    s1_path = os.path.join(sub, "%s_source1.tsv" % split)
+    total = sum(1 for _ in open(s1_path, encoding="utf-8", errors="replace")) - 1
+    log("%s: %d S1 rows, chunk=%d" % (split, total, chunk))
+    stats = {"pairs": 0, "pos": 0, "rare": 0}
+    t0 = time.time()
+    with open(out_path, "w", encoding="utf-8") as out:
+        out.write(HDR + "\n")
+        off = 0
+        while off < total:
+            recs = load_slice(s1_path, off, chunk)
+            gt = None
+            if split == "train":
+                gt = read_gt(os.path.join(data_dir, "train", "train_ground_truth.tsv"), set(recs))
+            block_slice(split, sub, recs, gt, out, stats, tok_top=tok_top)
+            off += len(recs)
+            log("  off=%d pairs=%d pos=%d %.0fs" % (off, stats["pairs"], stats["pos"], time.time() - t0))
+    log("%s DONE: %d pairs in %.0fs" % (split, stats["pairs"], time.time() - t0))
+    return out_path
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--chunk", type=int, default=250_000)
+    ap.add_argument("--tok-top", type=int, default=8)
+    ap.add_argument("--train-only", action="store_true")
+    a = ap.parse_args()
+    os.makedirs(os.path.join(ROOT, "data", "cache"), exist_ok=True)
+    os.makedirs(os.path.join(ROOT, "output"), exist_ok=True)
+    t_all = time.time()
+    train_pairs = os.path.join(ROOT, "data", "cache", "hj_train.tsv")
+    run_block("train", os.path.join(ROOT, "data"), train_pairs, a.chunk, a.tok_top)
+    rc = subprocess.call([sys.executable, os.path.join(ROOT, "src", "baseline", "train.py"),
+                          "--pairs", train_pairs,
+                          "--s1", os.path.join(ROOT, "data", "train", "train_source1.tsv"),
+                          "--gt", os.path.join(ROOT, "data", "train", "train_ground_truth.tsv"),
+                          "--model-out", os.path.join(ROOT, "models", "hj"),
+                          "--max-iter", "100"], cwd=ROOT)
+    if rc or a.train_only:
+        return rc
+    test_pairs = os.path.join(ROOT, "data", "cache", "hj_test.tsv")
+    run_block("test", os.path.join(ROOT, "data"), test_pairs, a.chunk, a.tok_top)
+    rc = subprocess.call([sys.executable, os.path.join(ROOT, "src", "baseline", "predict.py"),
+                          "--pairs", test_pairs,
+                          "--model", os.path.join(ROOT, "models", "hj.joblib"),
+                          "--test-dir", os.path.join(ROOT, "data", "test"),
+                          "--matching-out", os.path.join(ROOT, "output", "matching_results.tsv"),
+                          "--candidate-out", os.path.join(ROOT, "output", "candidate_pairs.tsv")],
+                         cwd=ROOT)
+    if rc:
+        return rc
+    log("TOTAL %.0fs" % (time.time() - t_all))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
