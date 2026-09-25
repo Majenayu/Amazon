@@ -43,7 +43,7 @@ def read_gt(path, keep):
         next(fh, None)
         for line in fh:
             p = line.rstrip("\n").split("\t")
-            if p[0] not in keep:
+            if keep is not None and p[0] not in keep:
                 continue
             gt[p[0]] = frozenset(x for x in p[1].split(",") if x) if len(p) > 1 and p[1] else frozenset()
     return gt

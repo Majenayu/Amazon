@@ -59,7 +59,12 @@ def main() -> int:
     ap.add_argument("--pairs", required=True, help="pairs TSV from block.py --split test")
     ap.add_argument("--model", required=True, help="model prefix from train.py (no extension)")
     ap.add_argument("--s1", required=True, help="test_source1.tsv")
-    ap.add_argument("--out-dir", default="output")
+    ap.add_argument("--out-dir", default="output",
+                    help="folder for matching_results.tsv + candidate_pairs.tsv")
+    ap.add_argument("--matching-out", default=None,
+                    help="explicit path for matching_results.tsv (overrides --out-dir)")
+    ap.add_argument("--candidate-out", default=None,
+                    help="explicit path for candidate_pairs.tsv (overrides --out-dir)")
     ap.add_argument("--threshold", type=float, default=None, help="override tuned threshold")
     ap.add_argument("--chunksize", type=int, default=500_000)
     ap.add_argument("--buckets", type=int, default=64)
@@ -81,8 +86,10 @@ def main() -> int:
     s1_ids = read_s1_ids(args.s1)
     log("Source-1 rows to emit: {:,}".format(len(s1_ids)))
 
-    os.makedirs(args.out_dir, exist_ok=True)
-    tmp_dir = os.path.join(args.out_dir, "_buckets")
+    out_dir = os.path.dirname(os.path.abspath(args.matching_out)) if args.matching_out \
+        else args.out_dir
+    os.makedirs(out_dir, exist_ok=True)
+    tmp_dir = os.path.join(out_dir, "_buckets")
     shutil.rmtree(tmp_dir, ignore_errors=True)
     os.makedirs(tmp_dir)
     handles = [open(os.path.join(tmp_dir, "b%02d.tsv" % i), "w", encoding="utf-8",
@@ -118,7 +125,7 @@ def main() -> int:
         return 1
 
     # ---- phase B: group candidates bucket by bucket (bounded memory) ---------
-    cand_path = os.path.join(args.out_dir, "candidate_pairs.tsv")
+    cand_path = args.candidate_out or os.path.join(out_dir, "candidate_pairs.tsv")
     emitted = set()
     t1 = time.time()
     with open(cand_path, "w", encoding="utf-8", newline="\n") as out:
@@ -142,7 +149,7 @@ def main() -> int:
         len(emitted), time.time() - t1))
 
     # ---- phase C: matching_results in Source-1 file order (+ empty rows) ------
-    match_path = os.path.join(args.out_dir, "matching_results.tsv")
+    match_path = args.matching_out or os.path.join(out_dir, "matching_results.tsv")
     n_nonempty = total_pred = appended = 0
     with open(match_path, "w", encoding="utf-8", newline="\n") as mout, \
             open(cand_path, "a", encoding="utf-8", newline="\n") as cout:

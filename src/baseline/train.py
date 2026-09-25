@@ -143,7 +143,12 @@ def main() -> int:
         100.0 * n_singleton / max(1, len(val_ids))))
 
     # ---- stream the pairs file -------------------------------------------------
-    feats = FEATURE_NAMES
+    # feature names come from the pairs file header, so v1 (8) and v3 (20)
+    # feature sets both work without editing this script
+    with open(args.pairs, encoding="utf-8", errors="replace") as fh:
+        header = fh.readline().rstrip("\n").split("\t")
+    feats = [c for c in header[2:] if c and c != "label"]
+    log("features (%d): %s" % (len(feats), ", ".join(feats)))
     split_cache = {}
     rng = np.random.default_rng(0)
     fit_X, fit_y, val_X, val_y, val_code = [], [], [], [], []

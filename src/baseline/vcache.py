@@ -35,9 +35,18 @@ def cache_s1(s1_path, out_path, offset=0, limit=0):
 
 
 def preparse_other(src_path, out_path):
-    """Parse one S2/S3 file once -> oid, n, toks(;), pins(;), country, atoks(;)."""
+    """Parse one S2/S3 file once -> oid, n, toks(;), pins(;), country, atoks(;).
+
+    STREAMING-SAFE: writes each line + flushes every 1M rows so a crash or
+    OOM-kill never leaves a truncated file that looks complete. Also writes
+    a .done marker only on success; v2block refuses to use a .pre without it.
+    """
     import baseline.textnorm as T
     n = 0
+    done = out_path + ".done"
+    import os as _os
+    if _os.path.exists(done):
+        _os.remove(done)
     with open(src_path, encoding="utf-8", errors="replace") as fin, \
             open(out_path, "w", encoding="utf-8") as fout:
         for i, line in enumerate(fin):
@@ -53,8 +62,10 @@ def preparse_other(src_path, out_path):
                        + ";".join((p[2] or "").lower().split()[:40]) + "\n")
             n += 1
             if n % 1000000 == 0:
+                fout.flush()
                 print("  preparsed %dM" % (n // 1000000), flush=True)
     print("preparsed %d -> %s" % (n, out_path), flush=True)
+    open(done, "w").write(str(n) + "\n")
     return out_path
 
 
