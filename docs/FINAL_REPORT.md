@@ -198,6 +198,62 @@ measured on 60,000 held-out entities at full density.
 reason is that stage 2 already tunes that threshold against the exact
 competition metric, which implicitly prices in the singleton payoff; the
 per-entity machinery only adds variance on top. The code is kept as a recorded
+
+### 5.5 The delivered submission
+
+All five stages ran on the full 2.52 GB (26,435,994 rows).
+
+| Stage | Result | Time |
+|---|---|---|
+| 1. Block train | 44,928,982 pairs, 4.37 GB, 2,400,928 true matches | 72 min |
+| 2. Train model | 5,320,278 training rows, threshold 0.8170, **F0.5 0.4565** | 6.8 min |
+| 3. Block test | 53,405,476 pairs, 4.85 GB | 93 min |
+| 4. Predict | both output files written | 10 min |
+| 5. Validate | **PASS** | 8 min |
+
+What the submission contains:
+
+| | |
+|---|---:|
+| Rows in `matching_results.tsv` | 1,732,544 (every test entity) |
+| Entities with at least one match | 1,423,133 (82.2%) |
+| Entities predicted as singletons | 309,411 (17.8%) |
+| Total predicted matches | 4,783,978 |
+| Entities with candidates | 1,587,779 of 1,732,544 (91.6%) |
+
+`src/validate_submission.py` reports **PASS - no blocking issues, safe to
+submit**: correct tab-separated header, all 1,732,544 required entities present,
+no duplicate rows, no duplicate IDs within a list, no self-matches, and every
+matched ID correctly prefixed `S2-` or `S3-`.
+
+### 5.6 How to read the 0.4565
+
+It is measured on 441,611 held-out training entities at full candidate density.
+The leaderboard figure will differ, for two structural reasons:
+
+1. **Density mismatch.** Test blocking scanned all 9.97M Source-2/3 rows while
+   training blocking used 30% of them, so the test candidate sets are denser and
+   contain more noise per entity.
+2. **France.** About 15% of test entities are French and have no training labels
+   at all, so the classifier is extrapolating for them.
+
+0.4565 is therefore the best current estimate of leaderboard performance, not a
+guarantee. The number that is *not* in doubt is the floor: 0.0559.
+
+### 5.7 Bugs found and fixed during the full run
+
+1. **False stage failure.** `tools/full_v3.ps1` reported `STAGE 1/5 FAIL exit=`
+   immediately after stage 1 had *successfully* written its 4.37 GB output, and
+   aborted the run. Cause: PowerShell returns `$null` for `Process.ExitCode`
+   unless the process handle is cached first. Fixed by touching `$p.Handle`
+   before `WaitForExit()`.
+2. **No resume.** Any crash re-ran completed stages. Fixed with `StageCached`,
+   which skips a stage whose output already exists and is non-empty. This saved
+   72 minutes and then 93 minutes on the two relaunches.
+3. **`decide.py` missing `numpy` import** - raised `NameError` in stage 4.
+4. **`predict.py` logging bug** - `{:.0f}` used with a `%` tuple raised
+   `TypeError` on the final log line, *after* both output files were completely
+   written, which made the orchestrator report a false failure. Fixed to `%.0f`.
 negative result rather than quietly deleted.
 
 ## 6. Honest statement about the 0.99 target

@@ -174,7 +174,7 @@ def main() -> int:
         .format(len(emitted), appended))
     log("  -> %s" % match_path)
     log("  -> %s" % cand_path)
-    log("  done in {:.0f}s" % (time.time() - t0))
+    log("  done in %.0fs" % (time.time() - t0))
     return 0
 
 

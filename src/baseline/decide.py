@@ -23,6 +23,7 @@ import sys
 import time
 from collections import defaultdict
 
+import numpy as np
 import pandas as pd
 
 HERE = os.path.dirname(os.path.abspath(__file__))
