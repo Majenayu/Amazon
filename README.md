@@ -85,8 +85,8 @@ with no `--limit`. Details in `docs/WORKFLOW.md`.
 |-- models/ output/ logs/   generated, git-ignored
 ```
 
-`src/*.py` at the top level, `pipeline.py`, `run_camber.py`, `artifacts/` and
-`camber_*.zip` belong to a separate parallel effort and are not used here.
+An earlier parallel effort (Kiro) is archived under `src/_archive_kiro/`
+(~1 GB: code + `artifacts/` + `camber_*.zip`) and is not used by this pipeline.
 
 ## Output format
 

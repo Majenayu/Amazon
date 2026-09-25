@@ -1,15 +1,10 @@
-# Handoff note for Kiro (and me) — shared facts
+# Handoff note — ARCHIVED 26 Sep 2026
 
-Two people are building in this repo at the same time. To avoid collisions:
-
-| Owner | Files |
-|---|---|
-| Kiro | `src/pipeline.py`, `src/build_maps.py`, `src/normalize.py` (and anything Kiro adds) |
-| Cline (me) | everything under `src/baseline/` |
-| Shared, do not rewrite | `src/validate_submission.py`, `data/`, `output/`, `docs/`, `notes/` |
-
-If Kiro's `pipeline.py` wants to reuse my work, import from `src/baseline/`
-(`textnorm`, `block`, ...) instead of rewriting it.
+Kiro's parallel pipeline (`src/_archive_kiro/`) is archived by owner request.
+The only active pipeline is `src/baseline/` (5 modules) run via
+`tools/run.ps1`. Nothing in the archive is imported by the active pipeline
+(verified: no `baseline` imports reference it, no archive file imports
+`baseline`). Restore with `git mv src/_archive_kiro/<file> <dest>` if needed.
 
 ## Facts that are already verified (do not re-derive)
 
