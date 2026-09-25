@@ -7,10 +7,12 @@ final score.
 
 How recall is bought
 --------------------
-1. UNION of five key types (exact name, sorted signature, token, 4-char token
-   prefix, postal code). A pair is a candidate if ANY key links it.
-2. KEY TRIMMING. Any token/prefix key shared by more than --tok-cap /
-   --pre-cap Source-1 rows is dropped; such keys are pure noise.
+1. UNION of six key types (exact name, sorted signature, token, 4-char token
+   prefix, postal code, address token). A pair is a candidate if ANY key
+   links it. Address keys are the only signal for transliteration pairs
+   whose names share nothing.
+2. KEY TRIMMING. Any token/prefix/address key shared by more than --tok-cap /
+   --pre-cap / --addr-cap Source-1 rows is dropped; such keys are pure noise.
 3. RANKED SELECTION. Candidates are ordered by a combined evidence score, so a
    true match outranks generic noise instead of losing on file order. An earlier
    first-come-first-served budget was measured to destroy recall.
@@ -51,8 +53,8 @@ if os.path.dirname(HERE) not in sys.path:
     sys.path.insert(0, os.path.dirname(HERE))
 
 from baseline.core import (  # noqa: E402
-    HDR, PRE_MIN, SCORE_HDR, TOK_MIN, cc, features, keys_for, key_sig,
-    normalize_name, pins,
+    HDR, PRE_MIN, SCORE_HDR, TOK_MIN, addr_tokens, cc, features, keys_for,
+    key_sig, normalize_name, pins,
 )
 
 
@@ -76,17 +78,25 @@ def load_s1(path, limit=0):
             n = normalize_name(p[1])
             c = cc(p[3])
             pn = pins(p[2])
-            recs.append((p[0], n, (p[2] or "").lower(), c, pn))
-            for _, k in keys_for(n, c, pn):
+            addr_raw = p[2] or ""
+            atok = addr_tokens(addr_raw)
+            recs.append((p[0], n, addr_raw.lower(), c, pn, atok))
+            for _, k in keys_for(n, c, pn, atok):
                 index[k].append(i)
     return recs, index
 
 
-def trim(index, tok_cap, pre_cap):
-    """Drop keys that cover too many Source-1 rows - they are pure noise."""
+def trim(index, tok_cap, pre_cap, addr_cap=400):
+    """Drop keys that cover too many Source-1 rows - they are pure noise.
+
+    Address keys get their own cap: generic-but-unskipped words (e.g. market,
+    chennai) legitimately cover more rows than a name token, but keys above
+    the cap are still pure noise that would flood the candidate budget.
+    """
     return {k: v for k, v in index.items()
             if (k[0] == "T" and len(v) <= tok_cap)
             or (k[0] == "X" and len(v) <= pre_cap)
+            or (k[0] == "A" and len(v) <= addr_cap)
             or k[0] in ("E", "S", "Z")}
 
 
@@ -102,15 +112,6 @@ def read_gt(path):
                     if x:
                         gt[p[0]].add(x)
     return gt
-
-
-def atok_of(cache, key, addr, limit=200000):
-    s = cache.get(key)
-    if s is None:
-        s = set(addr.split())
-        if len(cache) < limit:
-            cache[key] = s
-    return s
 
 
 def run(args):
@@ -131,9 +132,9 @@ def run(args):
     recs, index = load_s1(s1, args.s1_limit)
     log("S1 loaded: %s rows, %s keys in %.0fs"
         % (format(len(recs), ","), format(len(index), ","), time.time() - t0))
-    index = trim(index, args.tok_cap, args.pre_cap)
-    log("keys after trim (T<=%d X<=%d): %s"
-        % (args.tok_cap, args.pre_cap, format(len(index), ",")))
+    index = trim(index, args.tok_cap, args.pre_cap, args.addr_cap)
+    log("keys after trim (T<=%d X<=%d A<=%d): %s"
+        % (args.tok_cap, args.pre_cap, args.addr_cap, format(len(index), ",")))
 
     out_dir = os.path.dirname(os.path.abspath(args.out))
     if out_dir:
@@ -146,7 +147,6 @@ def run(args):
         fo.write((SCORE_HDR if args.score_only else HDR) + "\n")
         for src, path in (("S2", s2), ("S3", s3)):
             counts = array("I", bytes(4 * len(recs)))
-            cache = {}
             n_rows = 0
             with open(path, encoding="utf-8", errors="replace") as fh:
                 next(fh, None)
@@ -165,7 +165,7 @@ def run(args):
                     if not n2:
                         continue
                     oid, c2 = p[0], cc(p[3])
-                    atok2 = set((p[2] or "").lower().split())
+                    atok2 = addr_tokens(p[2])
                     pins2 = set(pins(p[2]))
                     t2 = set(n2.split())
                     pre2 = {t[:PRE_MIN] for t in t2 if len(t) >= PRE_MIN}
@@ -174,7 +174,7 @@ def run(args):
                     # selectivity) and stop at --post-budget, so one common word
                     # cannot turn a single row into thousands of candidates.
                     lst_info = []
-                    for w, k in keys_for(n2, c2, pins2):
+                    for w, k in keys_for(n2, c2, pins2, atok2):
                         lst = index.get(k)
                         if lst:
                             lst_info.append((w, len(lst), lst))
@@ -207,6 +207,13 @@ def run(args):
                         sc = 2 * len(t1 & t2) + len(pre1 & pre2)
                         if recs[i][4] and pins2 and (set(recs[i][4]) & pins2):
                             sc += 2
+                        # Address overlap: the only signal for transliteration
+                        # pairs whose names share nothing. recs[i][5] holds the
+                        # filtered address-token set (same normalisation as
+                        # the candidate side).
+                        a1 = recs[i][5]
+                        if a1 and atok2:
+                            sc += 1.5 * len(a1 & atok2)
                         if t1 and t1 == t2:
                             sc += 6
                         if n1 == n2:
@@ -232,7 +239,7 @@ def run(args):
                             fo.write("%s\t%s\t%g\t%s\n" % (sid, oid, sc, lab))
                         else:
                             r1 = {"n": recs[i][1],
-                                  "atok": atok_of(cache, i, recs[i][2]),
+                                  "atok": recs[i][5],
                                   "country": recs[i][3],
                                   "pins": recs[i][4]}
                             fv = features(r1, r2)
@@ -270,6 +277,8 @@ def main():
                     help="max Source-1 rows sharing a token key")
     ap.add_argument("--pre-cap", type=int, default=600,
                     help="max Source-1 rows sharing a token-prefix key")
+    ap.add_argument("--addr-cap", type=int, default=400,
+                        help="max Source-1 rows sharing an address-token key")
     ap.add_argument("--gate", type=float, default=3.0,
                     help="min combined evidence score to become a candidate")
     ap.add_argument("--strong", type=float, default=6.0,

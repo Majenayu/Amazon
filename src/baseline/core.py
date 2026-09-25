@@ -27,6 +27,17 @@ NUMERIC = set("0123456789")
 
 TOK_MIN = 4     # tokens shorter than this are too common to key on
 PRE_MIN = 4     # token-prefix key length
+ADDR_MIN = 5     # address tokens shorter than this are too common to key on
+
+# Generic address words that would create huge posting lists but carry almost
+# no identity. They are skipped at key-build time (the tok-cap trim is the
+# second line of defence). Deliberately small: over-skipping kills the
+# transliteration recall this key type exists for.
+ADDR_SKIP = frozenset("""
+road street avenue lane nagar colony block floor building shop plot near near
+opposite main cross layout area sector phase extension ext road street
+floor ground first second
+""".split())
 
 
 # --------------------------------------------------------------------------
@@ -94,14 +105,43 @@ def key_sig(n: str) -> str:
     return "|".join(sorted(n.split()))
 
 
-def keys_for(n: str, c: str, pn) -> list:
-    """(weight, key) pairs. Weight = how strong that key type is.
+def addr_tokens(address: str) -> set:
+    """ normalised address tokens worth blocking on.
 
-    E exact name and S sorted signature are near-certain matches, T/Z are solid
-    evidence, X (4-char token prefix) is only a typo hint. The weight orders
-    which posting lists are visited first and how candidates are ranked.
+    Lower-cased, split on whitespace, keep alnum tokens of length >= ADDR_MIN
+    that are not in ADDR_SKIP and not purely numeric (street numbers are
+    covered by the PIN / numeric-token features, and bare numbers like
+    '12' would collide across millions of rows).
+    """
+    if not address:
+        return set()
+    out = set()
+    for t in address.lower().split():
+        # strip surrounding punctuation: "road," -> "road"
+        t = t.strip(".,;:()[]{}'\"-")
+        if len(t) < ADDR_MIN:
+            continue
+        if t in ADDR_SKIP:
+            continue
+        if t.isdigit():
+            continue
+        # must contain a letter to avoid pure codes colliding
+        if not any(ch.isalpha() for ch in t):
+            continue
+        out.add(t)
+    return out
 
-    The union of these five key types is what lifts blocking recall. A pair
+
+def keys_for(n: str, c: str, pn, atok=None) -> list:
+    """(weight, key) pairs for one record.
+
+    E exact name and S sorted signature are near-certain matches, T/Z are
+    solid evidence, A (address token) is weaker per-token but is the ONLY
+    signal for transliteration pairs where the name shares nothing, X
+    (4-char token prefix) is only a typo hint. The weight orders which
+    posting lists are visited first and how candidates are ranked.
+
+    The union of these six key types is what lifts blocking recall. A pair
     becomes a candidate if ANY key links it.
     """
     out = []
@@ -116,6 +156,11 @@ def keys_for(n: str, c: str, pn) -> list:
         if len(t) >= PRE_MIN and t[:PRE_MIN] not in seen_x:
             seen_x.add(t[:PRE_MIN])
             out.append((1, "X|" + c + "|" + t[:PRE_MIN]))
+    if atok:
+        for t in atok:
+            # 1.5 each: two shared address tokens (3.0) pass the default
+            # gate on address evidence alone, one token alone does not.
+            out.append((1.5, "A|" + c + "|" + t))
     for z in pn:
         out.append((3, "Z|" + c + "|" + z))
     return out

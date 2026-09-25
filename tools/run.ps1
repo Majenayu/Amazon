@@ -43,10 +43,10 @@ $prog = Join-Path $root "logs\run.log"
 # Blocking parameters, chosen by -Mode sweep on real data (see logs/sweep.log).
 # post=800 lifts recall 0.5708 -> 0.5930 but halves throughput.
 $GATE = 3; $BUDGET = 15; $COLLECT = 40; $PRE = 40
-$POST = 400; $TCAP = 600; $PCAP = 600
+$POST = 400; $TCAP = 600; $PCAP = 600; $ACAP = 400
 $blockArgs = @('--gate', "$GATE", '--budget', "$BUDGET", '--collect', "$COLLECT",
                '--pre-collect', "$PRE", '--post-budget', "$POST",
-               '--tok-cap', "$TCAP", '--pre-cap', "$PCAP")
+                '--tok-cap', "$TCAP", '--pre-cap', "$PCAP", '--addr-cap', "$ACAP")
 
 $trainPairs = "data/cache/train_pairs.tsv"
 $testPairs = "data/cache/test_pairs.tsv"
