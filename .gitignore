@@ -1,0 +1,17 @@
+# Large dataset files - never push these to GitHub
+*.tsv
+*.pdf
+
+# macOS junk
+.DS_Store
+._*
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Data / output folders (keep them local)
+student_resource/dataset/
+output/
