@@ -114,3 +114,22 @@ The dataset is 2.52 GB / 26.4M rows. An AI context window holds roughly 1 MB of
 text, so asking an AI to "read the dataset" is not slow, it is impossible. The
 working pattern is: **ask the AI to write code, run it locally, paste back only
 the small summary.** `data/sample/` exists for exactly this reason.
+
+## Reproducibility and safety
+
+Install the scientific stack from `requirements.txt` in a Python virtual environment.
+The pipeline reads TSV files from the git-ignored `data/` directory and writes generated
+models, candidates, logs, and submissions to git-ignored output directories. Run the
+validator before every upload.
+
+The repository does not call external enrichment services or require credentials. Full
+challenge data is intentionally not tracked; obtain it through the approved challenge
+distribution channel. Main processing uses chunked reads, although the largest
+candidate and ID-validation modes still require substantial RAM.
+
+## Known limitations
+
+- The published score and blocking recall are historical measurements, not guarantees.
+- Candidate blocking sets the maximum achievable recall before classification.
+- The documented entry point is PowerShell; Linux users should translate its commands
+  or invoke the Python modules directly.
